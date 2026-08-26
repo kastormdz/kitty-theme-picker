@@ -344,7 +344,7 @@ main() {
   self_quoted="$(printf '%q ' "$0")"
   args=(--height=100% --reverse --ansi
         --header='Enter: aplicar y guardar   Esc: cancelar y restaurar    ★ = tema activo'
-        --color='fg:#cdd6f4,bg:#1e1e2e,hl:#f38ba8,fg+:#11111b,bg+:#f9e2af,hl+:#11111b,info:#89b4fa,marker:#a6e3a1,prompt:#89b4fa,spinner:#89b4fa,pointer:#f38ba8,header:#89b4fa,border:#313244,label:#89b4fa,query:#cdd6f4'
+        --color='hl:#f38ba8,fg+:#11111b,bg+:#f9e2af,hl+:#11111b,info:#89b4fa,marker:#a6e3a1,prompt:#89b4fa,spinner:#89b4fa,pointer:#f38ba8,header:#89b4fa,label:#89b4fa'
         --pointer='▶' --marker='◆'
         --preview "${self_quoted} --preview {}"
         --preview-window 'right:58%:wrap'
