@@ -6,12 +6,14 @@ TOTAL_MIN_THEMES=400
 DEXPOTA_URL="https://github.com/dexpota/kitty-themes/archive/refs/heads/master.tar.gz"
 KITTY_THEMES_URL="https://github.com/kovidgoyal/kitty-themes/archive/refs/heads/master.tar.gz"
 SELF_URL="https://raw.githubusercontent.com/kastormdz/kitty-theme-picker/main/kitty-theme-picker.sh"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-
-KEY_RE='^(foreground|background|selection_foreground|selection_background|cursor|cursor_text_color|url_color|color[0-9]{1,2})[ \t]'
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
+
+TMP="$(mktemp -d 2>/dev/null)"
+[[ -n "$TMP" ]] || die "no pude crear TMP"
+trap '[[ -n "${TMP:-}" ]] && rm -rf "$TMP"' EXIT
+
+KEY_RE='^(foreground|background|selection_foreground|selection_background|cursor|cursor_text_color|url_color|color[0-9]{1,2})[ \t]'
 
 usage() {
   cat <<'USO'
@@ -89,8 +91,14 @@ restore_original() {
 }
 
 unmark() {
-  local s="$1"
-  s="$(printf '%s' "$s" | sed -e $'s/\x1b\\[[0-9;]*m//g')"
+  local s="$1" pre resto sec
+  while [[ "$s" == *$'\e'[* ]]; do
+    pre="${s%%$'\e'[*}"
+    resto="${s#*$'\e'[}"
+    sec="${resto%%m*}"
+    [[ "$sec" == "$resto" ]] && break
+    s="${pre}${resto#"$sec"m}"
+  done
   case "$s" in
     '★ '*|'  '*) printf '%s\n' "${s:2}" ;;
     *)         printf '%s\n' "$s" ;;
@@ -115,10 +123,9 @@ do_preview() {
   [[ -f "$f" ]] || return 0
   local name="${f##*/}"
   name="${name%.conf}"
-  local host_tag="${USER:-$(id -un)}@$(hostname -s 2>/dev/null || echo localhost)"
-  local kv ver
-  kv="$(kitty --version 2>/dev/null)"
-  ver="${kv% created*}"
+  local host_tag="${KITTY_PICKER_HOST:-${USER:-$(id -un)}@$(hostname -s 2>/dev/null || echo localhost)}"
+  local ver="${KITTY_PICKER_VER:-$(kitty --version 2>/dev/null)}"
+  ver="${ver% created*}"
 
   local bg fg
   {
@@ -342,6 +349,8 @@ main() {
   local args
   local self_quoted
   self_quoted="$(printf '%q ' "$0")"
+  export KITTY_PICKER_HOST="${USER:-$(id -un)}@$(hostname -s 2>/dev/null || echo localhost)"
+  export KITTY_PICKER_VER="$(kitty --version 2>/dev/null)"
   args=(--height=100% --reverse --ansi
         --header='Enter: aplicar y guardar   Esc: cancelar y restaurar    ★ = tema activo'
         --color='hl:#f38ba8,fg+:#11111b,bg+:#f9e2af,hl+:#11111b,info:#89b4fa,marker:#a6e3a1,prompt:#89b4fa,spinner:#89b4fa,pointer:#f38ba8,header:#89b4fa,label:#89b4fa'
@@ -361,7 +370,9 @@ main() {
 
   if [[ "$status" -eq 0 && -n "$choice" ]]; then
     choice="$(unmark "$choice")"
-    cp -f "$(resolve_theme "$choice")" "$STORED"
+    cp -f "$(resolve_theme "$choice")" "$STORED" \
+      || die "no pude guardar el tema en $STORED"
+    chmod 600 "$STORED"
     printf 'tema aplicado y guardado: %s\n' "$choice"
   else
     restore_original
