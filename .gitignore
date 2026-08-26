@@ -1,0 +1,7 @@
+# Catalogos de temas descargados en pruebas locales
+themes/
+
+# Temporales de editor y sistema
+*.swp
+*~
+.DS_Store
