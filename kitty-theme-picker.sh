@@ -5,6 +5,7 @@ STORED="${HOME}/.config/kitty/current-theme.conf"
 TOTAL_MIN_THEMES=400
 DEXPOTA_URL="https://github.com/dexpota/kitty-themes/archive/refs/heads/master.tar.gz"
 KITTY_THEMES_URL="https://github.com/kovidgoyal/kitty-themes/archive/refs/heads/master.tar.gz"
+SELF_URL="https://raw.githubusercontent.com/kastormdz/kitty-theme-picker/main/kitty-theme-picker.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -21,6 +22,9 @@ uso:
   kitty-theme-picker.sh install     instala en ~/.local/bin, completa temas y valida el entorno
   kitty-theme-picker.sh refresh     re-descarga las colecciones para sumar temas nuevos
   kitty-theme-picker.sh -h          muestra esta ayuda
+
+  instalar directamente desde GitHub (una sola linea):
+    curl -fsSL https://raw.githubusercontent.com/kastormdz/kitty-theme-picker/main/kitty-theme-picker.sh | bash
 USO
 }
 
@@ -208,12 +212,31 @@ detect_active() {
 }
 
 do_install() {
-  local self bin_dir dst
-  self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+  local self src bin_dir dst dl_tmp
+  src="${BASH_SOURCE[0]:-}"
   bin_dir="${HOME}/.local/bin"
   dst="${bin_dir}/kitty-theme-picker.sh"
 
-  [[ -r "$self" ]] || die "no puedo leer el script fuente ($self)"
+  if [[ -n "$src" && -f "$src" ]]; then
+    self="$(readlink -f -- "$src")"
+    [[ -r "$self" ]] || die "no puedo leer el script fuente ($self)"
+  else
+    command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 \
+      || die "necesito curl o wget para descargarme"
+    dl_tmp="$(mktemp)"
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsSL "$SELF_URL" -o "$dl_tmp" \
+        || die "fallo al descargar desde $SELF_URL"
+    else
+      wget -qO "$dl_tmp" "$SELF_URL" \
+        || die "fallo al descargar desde $SELF_URL"
+    fi
+    [[ -s "$dl_tmp" ]] || die "descarga vacia desde $SELF_URL"
+    chmod 755 "$dl_tmp"
+    self="$dl_tmp"
+    printf 'descargado desde %s\n' "$SELF_URL"
+  fi
+
   mkdir -p "$bin_dir"
 
   if [[ -L "$dst" ]]; then
@@ -225,6 +248,8 @@ do_install() {
     chmod 755 "$dst"
     printf 'script: copiado a %s\n' "$dst"
   fi
+
+  [[ -n "${dl_tmp:-}" ]] && rm -f "$dl_tmp"
 
   case ":$PATH:" in
     *":$bin_dir:"*) printf 'path: %s en PATH\n' "$bin_dir" ;;
@@ -316,5 +341,10 @@ case "${1:-}" in
   refresh)        do_refresh ;;
   --preview)      do_preview "$2" ;;
   --apply)        do_apply "$2" ;;
-  *)              main ;;
+  *)
+    if [[ ! -f "${BASH_SOURCE[0]:-}" ]]; then
+      do_install
+    else
+      main
+    fi ;;
 esac

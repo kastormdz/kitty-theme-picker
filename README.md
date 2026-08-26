@@ -23,9 +23,19 @@ El script esta pensado para ser autocontenido y portable: verifica sus dependenc
 - `fzf` (0.28+ para posicion inicial), `awk`, `sort`, `cksum`.
 - `curl` o `wget` unicamente para la descarga automatica del catalogo.
 
-## Instalacion
+## Instalacion rapida
 
-Desde cualquier maquina con una copia del repositorio:
+Una sola linea para descargar e instalar el script, el catalogo de temas y validar el entorno:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kastormdz/kitty-theme-picker/main/kitty-theme-picker.sh | bash
+```
+
+El script detecta automaticamente que se ejecuta por `stdin`, se descarga desde GitHub a `~/.local/bin/kitty-theme-picker.sh`, completa el catalogo de temas si hace falta y reporta el estado de las dependencias y de la configuracion de IPC de Kitty.
+
+## Instalacion desde el repositorio
+
+Clonar el repositorio y ejecutar el instalador incluido:
 
 ```bash
 ./kitty-theme-picker.sh install
