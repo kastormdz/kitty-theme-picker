@@ -72,7 +72,7 @@ resolve_theme() {
 }
 
 theme_pairs() {
-  awk '$0 ~ re { k=$1; sub(/[ \t]+/, "", k); print k "=" $2 }' re="$KEY_RE" "$1" 2>/dev/null
+  awk '$0 ~ re { k=$1; gsub(/^[ \t]+|[ \t]+$/, "", k); print k "=" $2 }' re="$KEY_RE" "${1:-/dev/stdin}" 2>/dev/null
 }
 
 take_snapshot() {
@@ -83,18 +83,24 @@ take_snapshot() {
 restore_original() {
   [[ -s "$TMP/orig.txt" ]] || return 0
   local pairs=()
-  mapfile -t pairs < <(theme_pairs_stdin "$TMP/orig.txt")
+  mapfile -t pairs < <(theme_pairs "$TMP/orig.txt")
   ((${#pairs[@]})) || return 0
   kc set-colors -a "${pairs[@]}" 2>/dev/null
 }
 
-theme_pairs_stdin() {
-  awk '$0 ~ re { k=$1; sub(/[ \t]+/, "", k); print k "=" $2 }' re="$KEY_RE" "$1" 2>/dev/null
+unmark() {
+  local s="$1"
+  s="$(printf '%s' "$s" | sed -e $'s/\x1b\\[[0-9;]*m//g')"
+  case "$s" in
+    '★ '*|'  '*) printf '%s\n' "${s:2}" ;;
+    *)         printf '%s\n' "$s" ;;
+  esac
 }
 
 do_apply() {
-  local f
-  f="$(resolve_theme "$1")"
+  local n f
+  n="$(unmark "$1")"
+  f="$(resolve_theme "$n")"
   [[ -f "$f" ]] || return 1
   local pairs=()
   mapfile -t pairs < <(theme_pairs "$f")
@@ -103,8 +109,9 @@ do_apply() {
 }
 
 do_preview() {
-  local f
-  f="$(resolve_theme "$1")"
+  local n f
+  n="$(unmark "$1")"
+  f="$(resolve_theme "$n")"
   [[ -f "$f" ]] || return 0
   local name="${f##*/}"
   name="${name%.conf}"
@@ -174,9 +181,16 @@ fetch_collection() {
   mkdir -p "$t"
   printf 'bajando coleccion %s...\n' "$label" >&2
   "${dl[@]}" "$t/c.tgz" || { warn "fallo la descarga de $label"; rm -rf "$t"; return 1; }
-  tar xzf "$t/c.tgz" -C "$t" 2>/dev/null \
-    && find "$t" -type f -path '*/themes/*.conf' -exec cp -n {} "$THEMES_DIR"/ \; \
-    || warn "no pude extraer $label"
+  tar --no-same-owner --no-same-permissions -xzf "$t/c.tgz" -C "$t" 2>/dev/null \
+    || { warn "no pude extraer $label"; rm -rf "$t"; return 1; }
+  find "$t" -type f -path '*/themes/*.conf' -print0 2>/dev/null |
+    while IFS= read -r -d "" f; do
+      rel="${f#"$t"/}"
+      case "$rel" in
+        */../*) continue ;;
+        *) cp -n "$f" "$THEMES_DIR/" 2>/dev/null || true ;;
+      esac
+    done
   rm -rf "$t"
 }
 
@@ -200,12 +214,26 @@ build_list() {
   done | LC_ALL=C sort -f > "$1"
 }
 
+mark_display() {
+  local src="$1" dst="$2" cur="$3" line
+  if [[ -n "$cur" ]]; then
+    while IFS= read -r line; do
+      if [[ "$line" == "$cur" ]]; then
+        printf '\033[1;33m★ \033[0m\033[1m%s\033[0m\n' "$line"
+      else
+        printf '  %s\n' "$line"
+      fi
+    done < "$src" > "$dst"
+  else
+    sed 's/^/  /' "$src" > "$dst"
+  fi
+}
+
 detect_active() {
   [[ -f "$STORED" ]] || return 0
   local crc sz hit
   read -r crc sz _ < <(cksum "$STORED" 2>/dev/null) || return 0
-  hit="$(cksum "$THEMES_DIR"/*.conf 2>/dev/null \
-        | awk -v c="$crc" -v s="$sz" '$1==c && $2==s {print $3; exit}')" || return 0
+  hit="$(cksum "$THEMES_DIR"/*.conf 2>/dev/null         | awk -v c="$crc" -v s="$sz" '$1==c && $2==s {print $3; exit}')" || return 0
   [[ -n "$hit" ]] || return 0
   local n="${hit##*/}"
   printf '%s\n' "${n%.conf}"
@@ -300,7 +328,7 @@ main() {
 
   trap restore_original INT TERM
 
-  local list="$TMP/list.txt"
+  local list="$TMP/list.txt" disp="$TMP/display.txt"
   build_list "$list"
 
   local pos=0 cur
@@ -309,24 +337,30 @@ main() {
     pos="$(grep -nFx -- "$cur" "$list" 2>/dev/null)"
     pos="${pos%%:*}"
   fi
+  mark_display "$list" "$disp" "$cur"
 
   local args
-  args=(--height=100% --reverse
-        --header='Enter: aplicar y guardar   Esc: cancelar y restaurar'
-        --preview "$0 --preview {}"
+  local self_quoted
+  self_quoted="$(printf '%q ' "$0")"
+  args=(--height=100% --reverse --ansi
+        --header='Enter: aplicar y guardar   Esc: cancelar y restaurar    ★ = tema activo'
+        --color='fg:#cdd6f4,bg:#1e1e2e,hl:#f38ba8,fg+:#11111b,bg+:#f9e2af,hl+:#11111b,info:#89b4fa,marker:#a6e3a1,prompt:#89b4fa,spinner:#89b4fa,pointer:#f38ba8,header:#89b4fa,border:#313244,label:#89b4fa,query:#cdd6f4'
+        --pointer='▶' --marker='◆'
+        --preview "${self_quoted} --preview {}"
         --preview-window 'right:58%:wrap'
-        --bind "focus:execute-silent($0 --apply {})")
+        --bind "focus:execute-silent(${self_quoted} --apply {})")
   if [[ "$pos" =~ ^[0-9]+$ ]] && (( pos >= 1 )) && fzf_has_pos; then
     args+=(--sync --bind "start:pos($pos)")
   fi
 
   local choice status
-  choice="$(fzf "${args[@]}" < "$list")"
+  choice="$(fzf "${args[@]}" < "$disp")"
   status=$?
 
   trap - INT TERM
 
   if [[ "$status" -eq 0 && -n "$choice" ]]; then
+    choice="$(unmark "$choice")"
     cp -f "$(resolve_theme "$choice")" "$STORED"
     printf 'tema aplicado y guardado: %s\n' "$choice"
   else
