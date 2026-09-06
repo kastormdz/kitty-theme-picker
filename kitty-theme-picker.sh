@@ -302,12 +302,16 @@ do_install() {
   printf '%s temas disponibles en %s\n' "$(theme_count)" "$THEMES_DIR"
 
   local kc_conf="${HOME}/.config/kitty/kitty.conf"
+  if [[ -f "$kc_conf" ]] && grep -Eq '^[[:space:]]*allow_remote_control[[:space:]]+yes([[:space:]]|$)' "$kc_conf"; then
+    sed -i 's/^[[:space:]]*allow_remote_control[[:space:]]\+yes/allow_remote_control socket-only/' "$kc_conf" \
+      && printf 'ipc de kitty: endurecido allow_remote_control yes -> socket-only (reinicia kitty)\n'
+  fi
   if [[ ! -f "$kc_conf" ]]; then
     warn "no existe $kc_conf - crealo antes de usar el preview en vivo"
   elif ! grep -Eq '^[[:space:]]*allow_remote_control[[:space:]]+(yes|socket-only)' "$kc_conf" \
      || ! grep -Eq '^[[:space:]]*listen_on[[:space:]]+unix:/tmp/kitty-theme-sync' "$kc_conf"; then
     warn "a kitty.conf le faltan las lineas de IPC para el preview en vivo:"
-    printf '  allow_remote_control yes\n' >&2
+    printf '  allow_remote_control socket-only\n' >&2
     printf '  listen_on unix:/tmp/kitty-theme-sync-{kitty_pid}\n' >&2
   else
     printf 'ipc de kitty: OK\n'

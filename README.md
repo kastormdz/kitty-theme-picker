@@ -19,7 +19,7 @@ El script esta pensado para ser autocontenido y portable: verifica sus dependenc
 
 ## Requisitos
 
-- Kitty con `allow_remote_control yes` y `listen_on unix:/tmp/kitty-theme-sync` en `kitty.conf`.
+- Kitty con `allow_remote_control socket-only` y `listen_on unix:/tmp/kitty-theme-sync` en `kitty.conf`.
 - `fzf` (0.28+ para posicion inicial), `awk`, `sort`, `cksum`.
 - `curl` o `wget` unicamente para la descarga automatica del catalogo.
 
