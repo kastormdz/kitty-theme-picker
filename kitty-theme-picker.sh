@@ -380,9 +380,9 @@ main() {
         --header='Enter: aplicar y guardar   Esc: cancelar y restaurar    ★ = tema activo'
         --color='hl:#f38ba8,fg+:#11111b,bg+:#f9e2af,hl+:#11111b,info:#89b4fa,marker:#a6e3a1,prompt:#89b4fa,spinner:#89b4fa,pointer:#f38ba8,header:#89b4fa,label:#89b4fa'
         --pointer='▶' --marker='◆'
-        --preview "${self_quoted} --preview {q}"
+        --preview "${self_quoted} --preview {}"
         --preview-window 'right:58%:wrap'
-        --bind "focus:execute-silent(${self_quoted} --apply {q})")
+        --bind "focus:execute-silent(${self_quoted} --apply {})")
   if [[ "$pos" =~ ^[0-9]+$ ]] && (( pos >= 1 )) && fzf_has_pos; then
     args+=(--sync --bind "start:pos($pos)")
   fi
