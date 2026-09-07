@@ -47,16 +47,24 @@ fzf_has_pos() {
   (( maj > 0 || min >= 28 )) 2>/dev/null
 }
 
+find_sockets() {
+  local seen="|" s
+  for s in "${KITTY_PICKER_SOCK:-}" "${KITTY_LISTEN_ON#unix:}" /tmp/kitty-theme-sync; do
+    if [[ -n "$s" && -S "$s" && "$seen" != *"|$s|"* ]]; then
+      printf '%s\n' "$s"
+      seen+="|$s|"
+    fi
+  done
+  [[ "$seen" != "|" ]] && return 0
+  while IFS= read -r s; do
+    [[ -n "$s" && "$seen" != *"|$s|"* ]] || continue
+    printf '%s\n' "$s"
+    seen+="|$s|"
+  done < <(ls -t /tmp/kitty-theme-sync-* 2>/dev/null)
+}
+
 find_socket() {
-  if [[ -n "${KITTY_PICKER_SOCK:-}" && -S "$KITTY_PICKER_SOCK" ]]; then
-    printf '%s\n' "$KITTY_PICKER_SOCK"
-    return 0
-  fi
-  local s
-  s="$(ls -t /tmp/kitty-theme-sync-* 2>/dev/null | head -n 1)"
-  [[ -n "$s" ]] || return 1
-  export KITTY_PICKER_SOCK="$s"
-  printf '%s\n' "$s"
+  find_sockets | head -n 1
 }
 
 kc() {
@@ -78,8 +86,17 @@ theme_pairs() {
 }
 
 take_snapshot() {
-  kc get-colors 2>/dev/null | awk '$0 ~ re' re="$KEY_RE" > "$TMP/orig.txt"
-  [[ -s "$TMP/orig.txt" ]]
+  local s out
+  while IFS= read -r s; do
+    [[ -n "$s" ]] || continue
+    out="$(KITTY_PICKER_SOCK="$s" kc get-colors 2>/dev/null | awk '$0 ~ re' re="$KEY_RE")"
+    if [[ -n "$out" ]]; then
+      printf '%s\n' "$out" > "$TMP/orig.txt"
+      export KITTY_PICKER_SOCK="$s"
+      return 0
+    fi
+  done < <(find_sockets)
+  return 1
 }
 
 restore_original() {
@@ -253,7 +270,7 @@ do_install() {
   dst="${bin_dir}/kitty-theme-picker.sh"
 
   if [[ -n "$src" && -f "$src" ]]; then
-    self="$(readlink -f -- "$src")"
+    self="$(readlink -f -- "$src" 2>/dev/null || realpath -- "$src" 2>/dev/null || printf '%s\n' "$src")"
     [[ -r "$self" ]] || die "no puedo leer el script fuente ($self)"
   else
     command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 \
@@ -303,8 +320,12 @@ do_install() {
 
   local kc_conf="${HOME}/.config/kitty/kitty.conf"
   if [[ -f "$kc_conf" ]] && grep -Eq '^[[:space:]]*allow_remote_control[[:space:]]+yes([[:space:]]|$)' "$kc_conf"; then
-    sed -i 's/^[[:space:]]*allow_remote_control[[:space:]]\+yes/allow_remote_control socket-only/' "$kc_conf" \
-      && printf 'ipc de kitty: endurecido allow_remote_control yes -> socket-only (reinicia kitty)\n'
+    if sed 's/^[[:space:]]*allow_remote_control[[:space:]][[:space:]]*yes/allow_remote_control socket-only/' "$kc_conf" > "$kc_conf.tmp" \
+      && mv -f "$kc_conf.tmp" "$kc_conf"; then
+      printf 'ipc de kitty: endurecido allow_remote_control yes -> socket-only (reinicia kitty)\n'
+    else
+      rm -f "$kc_conf.tmp"
+    fi
   fi
   if [[ ! -f "$kc_conf" ]]; then
     warn "no existe $kc_conf - crealo antes de usar el preview en vivo"
@@ -359,9 +380,9 @@ main() {
         --header='Enter: aplicar y guardar   Esc: cancelar y restaurar    ★ = tema activo'
         --color='hl:#f38ba8,fg+:#11111b,bg+:#f9e2af,hl+:#11111b,info:#89b4fa,marker:#a6e3a1,prompt:#89b4fa,spinner:#89b4fa,pointer:#f38ba8,header:#89b4fa,label:#89b4fa'
         --pointer='▶' --marker='◆'
-        --preview "${self_quoted} --preview {}"
+        --preview "${self_quoted} --preview {q}"
         --preview-window 'right:58%:wrap'
-        --bind "focus:execute-silent(${self_quoted} --apply {})")
+        --bind "focus:execute-silent(${self_quoted} --apply {q})")
   if [[ "$pos" =~ ^[0-9]+$ ]] && (( pos >= 1 )) && fzf_has_pos; then
     args+=(--sync --bind "start:pos($pos)")
   fi
