@@ -1,5 +1,9 @@
 # kitty-theme-picker
 
+<p align="center">
+  <img src="kitty-theme-picker.png" alt="kitty-theme-picker en accion" width="800">
+</p>
+
 Selector interactivo de temas para el emulador de terminal Kitty con vista previa en vivo.
 
 ## Descripcion
