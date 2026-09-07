@@ -78,4 +78,4 @@ Ejecutar `kitty-theme-picker` dentro de cualquier ventana de Kitty. Navegar con 
 
 ## Notas tecnicas
 
-El selector escribe unicamente en `current-theme.conf` dentro del directorio de configuracion de Kitty. Herramientas externas que regeneren ese archivo pueden pisar la seleccion almacenada. La aplicacion en vivo usa `kitty @ set-colors` sobre el socket configurado en `listen_on`; si hay multiples instancias de Kitty, se utiliza el socket mas reciente.
+El selector escribe unicamente en `current-theme.conf` dentro del directorio de configuracion de Kitty. Herramientas externas que regeneren ese archivo pueden pisar la seleccion almacenada. La aplicacion en vivo usa `kitty @ set-colors` sobre el socket de la ventana actual (`$KITTY_LISTEN_ON`); solo si no esta disponible se usa el socket mas reciente como fallback.
