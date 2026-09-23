@@ -18,12 +18,13 @@ El script esta pensado para ser autocontenido y portable: verifica sus dependenc
 - Posicion inicial sobre el tema ya activo, detectado por checksum de contenido y no por nombre de archivo.
 - Bootstrap automatico del catalogo: si hay menos de 400 temas locales, descarga las colecciones `dexpota/kitty-themes` y la oficial `kovidgoyal/kitty-themes`; los archivos existentes nunca se sobrescriben.
 - Verificacion de dependencias al arranque con mensajes de error explicitos: `bash >= 4`, `fzf` (0.28 o superior recomendado), `kitty`, `awk`, `sort` y `cksum`.
+- Al confirmar, ademas de las ventanas abiertas se actualizan los colores *configured* de Kitty, que son los que heredan las ventanas y pestanas nuevas: el tema elegido queda activo sin recargar la config.
 - Cancelacion segura: toma una instantanea IPC antes de iniciar y la restituye ante `Esc` o `Ctrl-C`.
 - Rutas calientes optimizadas: construccion de lista sin forks, deteccion del tema activo en una sola pasada de checksum, socket de IPC cacheado y snapshot limitado a las claves que el selector modifica.
 
 ## Requisitos
 
-- Kitty con `allow_remote_control socket-only` y `listen_on unix:/tmp/kitty-theme-sync` en `kitty.conf`.
+- Kitty con `allow_remote_control socket-only` y `listen_on unix:$XDG_RUNTIME_DIR/kitty-theme-sync` en `kitty.conf`. El socket se busca primero en el runtime dir del usuario y despues en `/tmp`, asi que la config vieja (`unix:/tmp/kitty-theme-sync`) sigue funcionando sin tocar nada.
 - `fzf` (0.28+ para posicion inicial), `awk`, `sort`, `cksum`.
 - `curl` o `wget` unicamente para la descarga automatica del catalogo.
 
@@ -51,7 +52,7 @@ El comando `install` realiza lo siguiente:
 - Verifica que `~/.local/bin` figure en el `PATH` y advierte si no es asi.
 - Comprueba las dependencias (`fzf`, `kitty`, `awk`, `sort`, `cksum`, `tar`, `curl` o `wget`) y reporta las faltantes.
 - Completa el catalogo de temas si esta por debajo del umbral, igual que en el arranque normal.
-- Valida que `kitty.conf` contenga las dos lineas de IPC necesarias para el preview en vivo e indica como agregarlas si faltan.
+- Valida que `kitty.conf` contenga las dos lineas de IPC necesarias para el preview en vivo y el `include current-theme.conf` que hace que el tema guardado sobreviva al reinicio de Kitty, e indica como agregarlos si faltan.
 
 Es idempotente: puede ejecutarse cuantas veces se desee sin efectos secundarios.
 
@@ -79,3 +80,5 @@ Ejecutar `kitty-theme-picker` dentro de cualquier ventana de Kitty. Navegar con 
 ## Notas tecnicas
 
 El selector escribe unicamente en `current-theme.conf` dentro del directorio de configuracion de Kitty. Herramientas externas que regeneren ese archivo pueden pisar la seleccion almacenada. La aplicacion en vivo usa `kitty @ set-colors` sobre el socket de la ventana actual (`$KITTY_LISTEN_ON`); solo si no esta disponible se usa el socket mas reciente como fallback.
+
+El socket de control remoto se busca primero en `$XDG_RUNTIME_DIR` y despues en `/tmp`. Con `allow_remote_control socket-only` cualquier proceso que pueda conectarse a ese socket controla Kitty sin mas, y `/tmp` es un directorio compartido: ahi la unica proteccion es el `umask` con el que Kitty crea el socket (con `umask 0022` queda `srwxr-xr-x`, sin permiso de escritura para terceros; con `umask 0002` quedaria `srwxrwxr-x` y los usuarios del mismo grupo podrian conectarse). El runtime dir del usuario (`/run/user/<uid>`, modo `0700`) elimina esa dependencia del umask.

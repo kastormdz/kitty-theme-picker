@@ -15,6 +15,18 @@ trap '[[ -n "${TMP:-}" ]] && rm -rf "$TMP"' EXIT
 
 KEY_RE='^(foreground|background|selection_foreground|selection_background|cursor|cursor_text_color|url_color|color[0-9]{1,2})[ \t]'
 
+# Socket de control remoto de kitty. Se busca primero en el runtime dir del
+# usuario (0700 y per-user: no depende del umask ni de un /tmp compartido) y
+# despues en /tmp, que es donde vivia la config vieja.
+SOCK_NAME='kitty-theme-sync'
+if [[ -n "${KITTY_PICKER_SOCK_DIR:-}" ]]; then
+  SOCK_BASES=("$KITTY_PICKER_SOCK_DIR")
+else
+  SOCK_BASES=()
+  [[ -n "${XDG_RUNTIME_DIR:-}" ]] && SOCK_BASES+=("$XDG_RUNTIME_DIR")
+  SOCK_BASES+=('/tmp')
+fi
+
 usage() {
   cat <<'USO'
 kitty-theme-picker - selector interactivo de temas para kitty con preview en vivo
@@ -48,23 +60,30 @@ fzf_has_pos() {
 }
 
 find_sockets() {
-  local seen="|" s
-  for s in "${KITTY_PICKER_SOCK:-}" "${KITTY_LISTEN_ON#unix:}" /tmp/kitty-theme-sync; do
-    if [[ -n "$s" && -S "$s" && "$seen" != *"|$s|"* ]]; then
-      printf '%s\n' "$s"
-      seen+="|$s|"
-    fi
+  local seen="|" s d
+  # seen es local de find_sockets: add_sock lo ve por scoping dinamico de bash
+  add_sock() {
+    [[ -n "$1" && -S "$1" && "$seen" != *"|$1|"* ]] || return 0
+    printf '%s\n' "$1"
+    seen+="|$1|"
+  }
+  # lo que el entorno ya nos dice: el socket elegido por el picker y el de la
+  # ventana donde corremos (kitty exporta KITTY_LISTEN_ON a sus hijos)
+  for s in "${KITTY_PICKER_SOCK:-}" "${KITTY_LISTEN_ON:-}"; do add_sock "${s#unix:}"; done
+  # el nombre fijo en cada base conocida, en orden de preferencia
+  for d in "${SOCK_BASES[@]}"; do add_sock "$d/$SOCK_NAME"; done
+  # instancias con el pid sufijado, la mas nueva primero
+  for d in "${SOCK_BASES[@]}"; do
+    while IFS= read -r s; do add_sock "$s"; done < <(ls -t "$d/$SOCK_NAME"-* 2>/dev/null)
   done
-  [[ "$seen" != "|" ]] && return 0
-  while IFS= read -r s; do
-    [[ -n "$s" && "$seen" != *"|$s|"* ]] || continue
-    printf '%s\n' "$s"
-    seen+="|$s|"
-  done < <(ls -t /tmp/kitty-theme-sync-* 2>/dev/null)
+  [[ "$seen" != "|" ]]
 }
 
 find_socket() {
-  find_sockets | head -n 1
+  local s
+  s="$(find_sockets | head -n 1)"
+  [[ -n "$s" ]] || return 1
+  printf '%s\n' "$s"
 }
 
 kc() {
@@ -130,6 +149,18 @@ do_apply() {
   local pairs=()
   mapfile -t pairs < <(theme_pairs "$f")
   ((${#pairs[@]})) || return 1
+  kc set-colors -a "${pairs[@]}" 2>/dev/null
+}
+
+# Aplica sobre los colores "configured" de kitty, que son los que heredan las
+# ventanas nuevas. Se usa solo al confirmar: durante el preview no se toca para
+# que cancelar no requiera restaurar un estado que no se puede leer de vuelta.
+apply_configured() {
+  [[ -s "$STORED" ]] || return 0
+  local pairs=()
+  mapfile -t pairs < <(theme_pairs "$STORED")
+  ((${#pairs[@]})) || return 0
+  kc set-colors -a --configured "${pairs[@]}" 2>/dev/null && return 0
   kc set-colors -a "${pairs[@]}" 2>/dev/null
 }
 
@@ -330,12 +361,20 @@ do_install() {
   if [[ ! -f "$kc_conf" ]]; then
     warn "no existe $kc_conf - crealo antes de usar el preview en vivo"
   elif ! grep -Eq '^[[:space:]]*allow_remote_control[[:space:]]+(yes|socket-only)' "$kc_conf" \
-     || ! grep -Eq '^[[:space:]]*listen_on[[:space:]]+unix:/tmp/kitty-theme-sync' "$kc_conf"; then
+     || ! grep -Eq '^[[:space:]]*listen_on[[:space:]]+.*kitty-theme-sync' "$kc_conf"; then
     warn "a kitty.conf le faltan las lineas de IPC para el preview en vivo:"
     printf '  allow_remote_control socket-only\n' >&2
-    printf '  listen_on unix:/tmp/kitty-theme-sync-{kitty_pid}\n' >&2
+    printf '  listen_on unix:$XDG_RUNTIME_DIR/kitty-theme-sync\n' >&2
   else
     printf 'ipc de kitty: OK\n'
+    if grep -Eq '^[[:space:]]*listen_on[[:space:]]+unix:/tmp/' "$kc_conf"; then
+      warn "el socket de IPC vive en /tmp: con allow_remote_control socket-only, quien pueda conectarlo controla kitty"
+      printf '  sugerido: listen_on unix:$XDG_RUNTIME_DIR/kitty-theme-sync\n' >&2
+    fi
+  fi
+  if [[ -f "$kc_conf" ]] && ! grep -Eq '^[[:space:]]*include[[:space:]]+.*current-theme\.conf' "$kc_conf"; then
+    warn "kitty.conf no incluye current-theme.conf: el tema se guardaria pero no se aplicaria al reiniciar kitty"
+    printf '  include current-theme.conf\n' >&2
   fi
 
   printf 'listo - ejecuta "%s" dentro de una ventana de kitty\n' "$dst"
@@ -349,7 +388,9 @@ do_refresh() {
   fetch_collection "$DEXPOTA_URL" "dexpota/kitty-themes"
   fetch_collection "$KITTY_THEMES_URL" "kovidgoyal/kitty-themes (oficial)"
   after="$(theme_count)"
-  printf 'catalogo al dia: %s -> %s temas (%s nuevos)\n' "$before" "$after" "$((after - before))"
+  local delta=$((after - before))
+  (( delta >= 0 )) || delta=0
+  printf 'catalogo al dia: %s -> %s temas (%s nuevos)\n' "$before" "$after" "$delta"
 }
 
 main() {
@@ -398,6 +439,7 @@ main() {
     cp -f "$(resolve_theme "$choice")" "$STORED" \
       || die "no pude guardar el tema en $STORED"
     chmod 600 "$STORED"
+    apply_configured
     printf 'tema aplicado y guardado: %s\n' "$choice"
   else
     restore_original
